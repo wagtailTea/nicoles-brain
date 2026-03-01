@@ -16,7 +16,7 @@ export function ScenarioManager({
   activeScenarios,
   wipCount,
   onActivate,
-  onMove,
+  onMove: _onMove,
   onToggleDisrupt,
   onRemove,
 }: Props) {

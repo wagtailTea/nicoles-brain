@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import type { RoadmapItem, Workstream, ScheduleResult } from '../types';
-import type { MonthGroup } from '../utils/dates';
 import {
   getOriginJan1,
   groupWeeksByMonthFromJan1,
