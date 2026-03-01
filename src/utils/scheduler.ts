@@ -13,7 +13,7 @@ const DEFAULT_ESTIMATE = 2;
  * A stream can only schedule work in [startWeek, endWeek].
  * Returns a function that checks if a week is available on a stream.
  */
-function makeAvailabilityChecker(streams: Workstream[]) {
+function makeAvailabilityChecker(_streams: Workstream[]) {
   return (stream: Workstream, week: number): boolean => {
     if (stream.startWeek !== null && week < stream.startWeek) return false;
     if (stream.endWeek !== null && week > stream.endWeek) return false;
