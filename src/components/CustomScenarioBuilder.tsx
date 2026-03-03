@@ -15,6 +15,7 @@ export function CustomScenarioBuilder({ nowItemCount, onAdd, customItems, onRemo
   const [type, setType] = useState<ItemType>('Standard');
   const [estimate, setEstimate] = useState(2);
   const [position, setPosition] = useState(1);
+  const [expanded, setExpanded] = useState(false);
 
   const handleAdd = () => {
     if (!name.trim()) return;
@@ -32,11 +33,24 @@ export function CustomScenarioBuilder({ nowItemCount, onAdd, customItems, onRemo
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
-        <h3 className="text-sm font-semibold text-slate-800">Custom Items</h3>
-        <p className="text-xs text-slate-500 mt-0.5">Add temporary items to test impact</p>
-      </div>
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50 text-left"
+      >
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800">Custom Items</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Add temporary items to test impact</p>
+        </div>
+        <svg
+          className={`w-5 h-5 text-slate-400 transition-transform flex-shrink-0 ${expanded ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
 
+      {expanded && (
       <div className="p-4 space-y-3">
         <div className="flex flex-wrap gap-2 items-end">
           <label className="flex-1 min-w-[140px]">
@@ -58,7 +72,8 @@ export function CustomScenarioBuilder({ nowItemCount, onAdd, customItems, onRemo
             >
               <option value="Standard">Standard</option>
               <option value="Integration">Integration</option>
-              <option value="Dev-design pair">Dev-design pair</option>
+              <option value="Slow Burners">Slow Burners</option>
+              <option value="Ongoing">Ongoing</option>
             </select>
           </label>
           <label>
@@ -112,6 +127,7 @@ export function CustomScenarioBuilder({ nowItemCount, onAdd, customItems, onRemo
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

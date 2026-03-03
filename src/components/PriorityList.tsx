@@ -40,9 +40,16 @@ export function PriorityList({ title, items, schedule: _schedule, selectedItemId
                 </span>
               )}
               {(() => {
-                const badgeLabel = item.group === 'WIP' ? 'WIP' : item.group === 'Now' ? 'Scheduled' : item.type;
-                const badgeClass = item.group === 'WIP'
+                const badgeLabel = item.startDate ? 'In Progress'
+                  : item.group === 'WIP' ? 'WIP'
+                  : item.group === 'WIP-migration' ? 'Old Format'
+                  : item.group === 'Now' ? 'Scheduled' : item.type;
+                const badgeClass = item.startDate
+                  ? 'bg-emerald-50 text-emerald-700'
+                  : item.group === 'WIP'
                   ? 'bg-amber-50 text-amber-700'
+                  : item.group === 'WIP-migration'
+                  ? 'bg-slate-100 text-slate-600'
                   : item.group === 'Now'
                   ? 'bg-slate-100 text-slate-700'
                   : item.type === 'Standard'

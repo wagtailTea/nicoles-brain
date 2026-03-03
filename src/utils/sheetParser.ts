@@ -55,6 +55,13 @@ function findColumnIndices(header: string[]): Record<string, number> {
   let estimateTotal = normalized.indexOf('estimate (total)');
   if (estimateTotal === -1) estimateTotal = normalized.indexOf('total estimate');
 
+  const startDateIdx = normalized.indexOf('startdate');
+  const startDate = startDateIdx >= 0 ? startDateIdx : normalized.indexOf('start date');
+
+  let dependsOn = normalized.indexOf('depends on');
+  if (dependsOn === -1) dependsOn = normalized.indexOf('dependencies');
+  if (dependsOn === -1) dependsOn = normalized.indexOf('blocked by');
+
   return {
     title: normalized.indexOf('title'),
     issueKey: normalized.indexOf('issue key'),
@@ -66,6 +73,8 @@ function findColumnIndices(header: string[]): Record<string, number> {
     type: normalized.indexOf('type'),
     deadline: normalized.indexOf('deadline'),
     deadlineNotes: normalized.indexOf('deadline notes'),
+    startDate,
+    dependsOn,
   };
 }
 
@@ -95,13 +104,23 @@ export function parseSheetCSV(text: string): RoadmapItem[] {
   const type: ItemType = (() => {
     const raw = (row[cols.type] || 'Standard').trim().toLowerCase();
     if (raw === 'integration') return 'Integration';
-    if (raw === 'dev-design pair') return 'Dev-design pair';
+    if (raw === 'slow burners' || raw === 'slow burner') return 'Slow Burners';
+    if (raw === 'ongoing') return 'Ongoing';
+    if (raw === 'dev-design pair') return 'Standard'; // legacy
     return 'Standard';
   })();
     const group: GroupKind = (row[cols.group] || 'Later').trim();
 
     const deadlineRaw = cols.deadline >= 0 ? (row[cols.deadline] || '').trim() : '';
     const deadlineNotesRaw = cols.deadlineNotes >= 0 ? (row[cols.deadlineNotes] || '').trim() : '';
+    const startDateCol = cols.startDate >= 0 ? cols.startDate : -1;
+    const startDateRaw = startDateCol >= 0 ? (row[startDateCol] || '').trim() : '';
+    const startDate = startDateRaw || null;
+
+    const dependsOnRaw = cols.dependsOn >= 0 ? (row[cols.dependsOn] || '').trim() : '';
+    const dependsOn = dependsOnRaw
+      ? dependsOnRaw.split(',').map(k => k.trim()).filter(Boolean)
+      : [];
 
     items.push({
       id: `item-${i}`,
@@ -117,6 +136,8 @@ export function parseSheetCSV(text: string): RoadmapItem[] {
       color: '',
       deadline: deadlineRaw || null,
       deadlineNotes: deadlineNotesRaw || null,
+      startDate,
+      dependsOn,
     });
   }
 

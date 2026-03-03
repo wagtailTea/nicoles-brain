@@ -4,7 +4,6 @@ import type {
   WorkstreamConfig,
   ScenarioInsertion,
   CustomItem,
-  ItemType,
   Workstream,
 } from './types';
 import { fetchSheetData } from './utils/sheetParser';
@@ -15,21 +14,31 @@ import { ImpactSummary } from './components/ImpactSummary';
 import { WorkstreamConfigPanel } from './components/WorkstreamConfig';
 import { TimelineGrid } from './components/TimelineGrid';
 import { PriorityList } from './components/PriorityList';
+import { BusinessAsUsualTiles } from './components/BusinessAsUsualTiles';
 import { DetailPanel } from './components/DetailPanel';
 import { NextLaterSection } from './components/NextLaterSection';
 import { ScenarioManager } from './components/ScenarioManager';
 import { CustomScenarioBuilder } from './components/CustomScenarioBuilder';
 
-function buildDefaultStreams(stdCount: number, intCount: number, pairCount: number): Workstream[] {
+import { getTimelineOrigin, scheduleWeekFromDate } from './utils/dates';
+
+function buildDefaultStreams(focusCount: number, wipMigCount: number): Workstream[] {
+  const origin = getTimelineOrigin();
+  const teamTbcStartWeek = scheduleWeekFromDate(new Date(2026, 2, 16), origin); // 16 March 2026
   const streams: Workstream[] = [];
-  for (let i = 0; i < stdCount; i++) {
-    streams.push({ id: `std-${i}`, name: `Standard ${i + 1}`, type: 'Standard' as ItemType, startWeek: null, endWeek: null });
+  for (let i = 0; i < focusCount; i++) {
+    const name = i === 0 ? 'Team: Silk Road' : i === 1 ? 'Team: TBC' : `Focus Area ${i + 1}`;
+    const startWeek = i === 1 ? Math.max(0, teamTbcStartWeek) : null;
+    streams.push({ id: `focus-${i}`, name, type: 'Focus Area', startWeek, endWeek: null });
   }
-  for (let i = 0; i < intCount; i++) {
-    streams.push({ id: `int-${i}`, name: `Integration ${i + 1}`, type: 'Integration' as ItemType, startWeek: null, endWeek: null });
-  }
-  for (let i = 0; i < pairCount; i++) {
-    streams.push({ id: `pair-${i}`, name: `Dev-design pair ${i + 1}`, type: 'Dev-design pair' as ItemType, startWeek: null, endWeek: null });
+  for (let i = 0; i < wipMigCount; i++) {
+    streams.push({
+      id: `wip-mig-${i}`,
+      name: i === 0 ? 'Clean Up' : `WIP Migration ${i + 1}`,
+      type: 'WIP Migration',
+      startWeek: null,
+      endWeek: null,
+    });
   }
   return streams;
 }
@@ -44,12 +53,14 @@ function App() {
   const [customItems, setCustomItems] = useState<CustomItem[]>([]);
 
   const [wsConfig, setWsConfig] = useState<WorkstreamConfig>({
-    standardCount: 2,
-    integrationCount: 1,
-    devDesignPairCount: 1,
-    streams: buildDefaultStreams(2, 1, 1),
+    focusAreaCount: 2,
+    wipMigrationCount: 1,
+    streams: buildDefaultStreams(2, 1),
     qaReleaseWeeks: 3,
   });
+
+  const [nextLaterView, setNextLaterView] = useState<'prioritised' | 'unprioritised'>('unprioritised');
+  const [groupFocusByType, setGroupFocusByType] = useState(false);
 
   const loadData = useCallback(async (useMock = false) => {
     setLoading(true);
@@ -75,52 +86,44 @@ function App() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Categorise items (WIP is part of "now" for timeline; we keep it separate for scenario ordering)
-  const { wipItems, baseNowItems, nextItems, laterItems, scenarios } = useMemo(() => {
-    const wip: RoadmapItem[] = [];
+  // Categorise items: WIP-migration, Now (timeline); Next, Later, Ongoing; scenarios (no WIP group — in progress = has Start Date)
+  const { wipMigrationItems, baseNowItems, nextItems, laterItems, ongoingItems, scenarios } = useMemo(() => {
+    const wipMig: RoadmapItem[] = [];
     const now: RoadmapItem[] = [];
     const next: RoadmapItem[] = [];
     const later: RoadmapItem[] = [];
+    const ongoing: RoadmapItem[] = [];
     const sc: Record<string, RoadmapItem[]> = {};
 
     for (const item of allItems) {
-      if (item.group === 'WIP') wip.push(item);
+      if (item.group === 'WIP-migration') wipMig.push(item);
       else if (item.group === 'Now') now.push(item);
       else if (item.group === 'Next') next.push(item);
       else if (item.group === 'Later') later.push(item);
+      else if (item.group === 'Ongoing') ongoing.push(item);
       else if (item.group) {
         if (!sc[item.group]) sc[item.group] = [];
         sc[item.group].push(item);
       }
     }
-    return { wipItems: wip, baseNowItems: now, nextItems: next, laterItems: later, scenarios: sc };
+    return { wipMigrationItems: wipMig, baseNowItems: now, nextItems: next, laterItems: later, ongoingItems: ongoing, scenarios: sc };
   }, [allItems]);
 
-  // Base ordered list for timeline: WIP first (work already started), then Now
+  // Base ordered list for timeline: WIP-migration, then Now, by spreadsheet order (originalIndex)
   const baseOrderedNow = useMemo(
-    () => [...wipItems, ...baseNowItems],
-    [wipItems, baseNowItems]
+    () => [...wipMigrationItems, ...baseNowItems].sort((a, b) => a.originalIndex - b.originalIndex),
+    [wipMigrationItems, baseNowItems]
   );
 
-  // Build effective Now list: base (WIP + Now), then scenario blocks by disruptWip, then custom items
+  // Build effective Now list: base timeline, then scenario blocks by priority (1 = first), then custom items
   const effectiveNowItems = useMemo(() => {
     let list = [...baseOrderedNow];
-    const wipCount = wipItems.length;
-
-    // Disrupt WIP = true: scenario goes to top (prepend). Order so first in activeScenarios is at top.
-    const disruptScenarios = activeScenarios.filter(s => s.disruptWip);
-    for (const sc of [...disruptScenarios].reverse()) {
+    const sortedScenarios = [...activeScenarios].sort((a, b) => a.priority - b.priority);
+    let insertAt = 0;
+    for (const sc of sortedScenarios) {
       const items = scenarios[sc.scenarioName] || [];
-      list = [...items, ...list];
-    }
-
-    // Disrupt WIP = false: scenario goes after WIP (insert after wipCount, then offset for multiple)
-    const nonDisruptScenarios = activeScenarios.filter(s => !s.disruptWip);
-    let insertOffset = wipCount;
-    for (const sc of nonDisruptScenarios) {
-      const items = scenarios[sc.scenarioName] || [];
-      list.splice(insertOffset, 0, ...items);
-      insertOffset += items.length;
+      list.splice(insertAt, 0, ...items);
+      insertAt += items.length;
     }
 
     // Insert custom items
@@ -141,6 +144,8 @@ function App() {
         color: '',
         deadline: null,
         deadlineNotes: null,
+        startDate: null,
+        dependsOn: [],
       };
       const idx = Math.min(ci.insertAtIndex + cOffset, list.length);
       list.splice(idx, 0, item);
@@ -150,13 +155,31 @@ function App() {
     // Re-assign colors by stream (base hue per stream, alternating light/dark within stream)
     list = list.map(item => ({ ...item, color: '' }));
     return list;
-  }, [baseOrderedNow, wipItems.length, activeScenarios, customItems, scenarios]);
+  }, [baseOrderedNow, activeScenarios, customItems, scenarios]);
 
-  // Schedule (based on items without final colors)
+  // Schedule: WIP-migration → WIP Migration streams; Standard/Integration → Focus Area streams
   const schedule = useMemo(
     () => scheduleItems(effectiveNowItems, wsConfig.streams),
     [effectiveNowItems, wsConfig.streams]
   );
+
+  // Default WIP Migration stream end week: when all WIP-migration items are complete (only set when stream endWeek is null)
+  useEffect(() => {
+    const wipMigStream = wsConfig.streams.find(s => s.type === 'WIP Migration');
+    if (!wipMigStream || wipMigStream.endWeek !== null) return;
+    let maxWeek = -1;
+    for (const item of wipMigrationItems) {
+      const w = schedule.itemCompletionWeeks[item.id];
+      if (w !== undefined && w > maxWeek) maxWeek = w;
+    }
+    if (maxWeek < 0) return;
+    setWsConfig(prev => ({
+      ...prev,
+      streams: prev.streams.map(s =>
+        s.id === wipMigStream.id ? { ...s, endWeek: maxWeek } : s
+      ),
+    }));
+  }, [schedule.itemCompletionWeeks, wipMigrationItems, wsConfig.streams]);
 
   // Stream-based colors: one hue per stream type, alternating light/dark for contrast
   const effectiveNowItemsWithColors = useMemo(() => {
@@ -176,6 +199,17 @@ function App() {
     effectiveNowItemsWithColors.forEach(i => { map[i.id] = i; });
     return map;
   }, [allItems, effectiveNowItemsWithColors]);
+
+  const focusItems = useMemo(
+    () => effectiveNowItemsWithColors.filter(i => i.type === 'Standard' || i.type === 'Integration'),
+    [effectiveNowItemsWithColors]
+  );
+  const businessAsUsualItems = useMemo(
+    () => allItems.filter(i =>
+      i.type === 'Slow Burners' || i.type === 'Ongoing' || i.group === 'Ongoing'
+    ),
+    [allItems]
+  );
 
   const selectedItem = selectedItemId ? allItemMap[selectedItemId] ?? null : null;
 
@@ -216,7 +250,14 @@ function App() {
 
       <main className="max-w-[1600px] mx-auto px-6 py-6 space-y-6">
         {/* Impact Summary */}
-        <ImpactSummary impact={impact} qaReleaseWeeks={wsConfig.qaReleaseWeeks} />
+        <ImpactSummary impact={impact} qaReleaseWeeks={wsConfig.qaReleaseWeeks} itemCount={effectiveNowItemsWithColors.length} />
+
+        {schedule.lostFocus && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <p className="font-medium">More items are active in some weeks than you have workstreams.</p>
+            <p className="mt-1 text-amber-700">Spreading focus across too many parallel items can slow delivery. Consider sequencing or adding capacity if timelines are critical.</p>
+          </div>
+        )}
 
         {/* Config */}
         <WorkstreamConfigPanel config={wsConfig} onChange={setWsConfig} />
@@ -225,7 +266,7 @@ function App() {
         <section>
           <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
             <span className="inline-block w-3 h-3 rounded-full bg-indigo-500" />
-            Horizon 1
+            Current Focus
           </h2>
           <div className="space-y-6">
             {/* Timeline full width */}
@@ -241,16 +282,10 @@ function App() {
               <ScenarioManager
                 scenarios={scenarios}
                 activeScenarios={activeScenarios}
-                wipCount={wipItems.length}
                 onActivate={(sc) => setActiveScenarios(prev => [...prev, sc])}
-                onMove={(name, idx) =>
+                onPriorityChange={(name, priority) =>
                   setActiveScenarios(prev =>
-                    prev.map(s => s.scenarioName === name ? { ...s, insertAtIndex: idx } : s)
-                  )
-                }
-                onToggleDisrupt={(name, disruptWip) =>
-                  setActiveScenarios(prev =>
-                    prev.map(s => s.scenarioName === name ? { ...s, disruptWip } : s)
+                    prev.map(s => s.scenarioName === name ? { ...s, priority } : s)
                   )
                 }
                 onRemove={(name) => setActiveScenarios(prev => prev.filter(s => s.scenarioName !== name))}
@@ -262,38 +297,64 @@ function App() {
                 onRemove={(id) => setCustomItems(prev => prev.filter(c => c.id !== id))}
               />
             </div>
-            {/* Priority lists - fully visible */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <PriorityList
-                title="Integration"
-                items={effectiveNowItemsWithColors.filter(i => i.type === 'Integration')}
-                schedule={schedule}
-                selectedItemId={selectedItemId}
-                onSelectItem={setSelectedItemId}
-              />
-              <PriorityList
-                title="Standard"
-                items={effectiveNowItemsWithColors.filter(i => i.type === 'Standard')}
-                schedule={schedule}
-                selectedItemId={selectedItemId}
-                onSelectItem={setSelectedItemId}
-              />
-              <PriorityList
-                title="Dev-design pair"
-                items={effectiveNowItemsWithColors.filter(i => i.type === 'Dev-design pair')}
-                schedule={schedule}
-                selectedItemId={selectedItemId}
-                onSelectItem={setSelectedItemId}
-              />
+            {/* Priority lists: Focus (combined or by type) + Business as Usual */}
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={groupFocusByType}
+                  onChange={e => setGroupFocusByType(e.target.checked)}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                Group by type (Integration / Standard)
+              </label>
+              <div className={`grid gap-6 ${groupFocusByType ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1 md:grid-cols-2'}`}>
+                {groupFocusByType ? (
+                  <>
+                    <PriorityList
+                      title="Integration"
+                      items={effectiveNowItemsWithColors.filter(i => i.type === 'Integration')}
+                      schedule={schedule}
+                      selectedItemId={selectedItemId}
+                      onSelectItem={setSelectedItemId}
+                    />
+                    <PriorityList
+                      title="Standard"
+                      items={effectiveNowItemsWithColors.filter(i => i.type === 'Standard')}
+                      schedule={schedule}
+                      selectedItemId={selectedItemId}
+                      onSelectItem={setSelectedItemId}
+                    />
+                    <BusinessAsUsualTiles title="Business as Usual" items={businessAsUsualItems} />
+                  </>
+                ) : (
+                  <>
+                    <PriorityList
+                      title="Focus"
+                      items={focusItems}
+                      schedule={schedule}
+                      selectedItemId={selectedItemId}
+                      onSelectItem={setSelectedItemId}
+                    />
+                    <BusinessAsUsualTiles title="Business as Usual" items={businessAsUsualItems} />
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </section>
 
-        {/* Next - full width section with two lists */}
-        <NextLaterSection sectionTitle="Next" variant="next" items={nextItems} onSelectItem={setSelectedItemId} />
-
-        {/* Later - full width section with two lists */}
-        <NextLaterSection sectionTitle="Later" variant="later" items={laterItems} onSelectItem={setSelectedItemId} />
+        {/* Next / Later: toggle view (default Unprioritised = single list) */}
+        <NextLaterSection
+          nextItems={nextItems}
+          laterItems={laterItems}
+          ongoingItems={ongoingItems}
+          view={nextLaterView}
+          onViewChange={setNextLaterView}
+          groupFocusByType={groupFocusByType}
+          onGroupFocusByTypeChange={setGroupFocusByType}
+          onSelectItem={setSelectedItemId}
+        />
       </main>
 
       {/* Detail Panel */}
@@ -308,6 +369,7 @@ function App() {
             completionWeek={schedule.itemCompletionWeeks[selectedItem.id]}
             qaReleaseWeeks={wsConfig.qaReleaseWeeks}
             onClose={() => setSelectedItemId(null)}
+            allItems={allItems}
           />
         </>
       )}
