@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import type { RoadmapItem, Workstream, ScheduleResult } from '../types';
 import {
-  getOriginJan1,
-  groupWeeksByMonthFromJan1,
+  getTimelineOrigin,
+  groupWeeksByHalfYear,
   isWeekInPast,
   dateToWeekOffset,
 } from '../utils/dates';
@@ -15,8 +15,6 @@ interface Props {
   onSelectItem: (id: string) => void;
 }
 
-const WEEKS_PER_ROW = 26;
-
 export function TimelineGrid({ schedule, streams, items, selectedItemId, onSelectItem }: Props) {
   const itemMap = useMemo(() => {
     const m: Record<string, RoadmapItem> = {};
@@ -24,7 +22,7 @@ export function TimelineGrid({ schedule, streams, items, selectedItemId, onSelec
     return m;
   }, [items]);
 
-  const origin = useMemo(() => getOriginJan1(new Date().getFullYear()), []);
+  const origin = useMemo(() => getTimelineOrigin(), []);
   const todayCalendarWeek = useMemo(() => dateToWeekOffset(new Date(), origin), [origin]);
 
   const weekCount = useMemo(
@@ -43,7 +41,7 @@ export function TimelineGrid({ schedule, streams, items, selectedItemId, onSelec
   }, [schedule, streams]);
 
   const rows = useMemo(
-    () => groupWeeksByMonthFromJan1(weekCount, origin, WEEKS_PER_ROW),
+    () => groupWeeksByHalfYear(weekCount, origin),
     [weekCount, origin]
   );
 
@@ -114,7 +112,7 @@ export function TimelineGrid({ schedule, streams, items, selectedItemId, onSelec
             <div className="min-w-fit">
               <div className="flex border-b border-slate-200 sticky top-0 bg-white z-10">
                 <div className="w-36 min-w-36 px-3 py-2 text-xs font-medium text-slate-500 border-r border-slate-100 flex-shrink-0">
-                  {rowIdx === 0 ? 'Stream' : ''}
+                  {rowIdx === 0 ? 'Current Focus' : ''}
                 </div>
                 {rowGroups.map((group, gIdx) => (
                   <div
@@ -135,11 +133,9 @@ export function TimelineGrid({ schedule, streams, items, selectedItemId, onSelec
                   <div className="w-36 min-w-36 px-3 py-2 flex items-center gap-2 border-r border-slate-100 flex-shrink-0">
                     <span
                       className={`inline-block w-2 h-2 rounded-full ${
-                        stream.type === 'Standard'
-                          ? 'bg-blue-500'
-                          : stream.type === 'Integration'
-                            ? 'bg-orange-600'
-                            : 'bg-violet-500'
+                        stream.type === 'Focus Area'
+                          ? 'bg-indigo-500'
+                          : 'bg-teal-500'
                       }`}
                     />
                     <span className="text-xs font-medium text-slate-700 truncate">{stream.name}</span>

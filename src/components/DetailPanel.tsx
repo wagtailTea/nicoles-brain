@@ -8,9 +8,11 @@ interface Props {
   completionWeek: number | undefined;
   qaReleaseWeeks: number;
   onClose: () => void;
+  /** All items (from sheet/timeline) used to detect unresolved dependency issue keys. */
+  allItems?: RoadmapItem[];
 }
 
-export function DetailPanel({ item, completionWeek, qaReleaseWeeks, onClose }: Props) {
+export function DetailPanel({ item, completionWeek, qaReleaseWeeks, onClose, allItems = [] }: Props) {
   if (!item) return null;
 
   return (
@@ -45,6 +47,23 @@ export function DetailPanel({ item, completionWeek, qaReleaseWeeks, onClose }: P
           </div>
         )}
 
+        {item.dependsOn && item.dependsOn.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Depends on</p>
+            <p className="mt-1 text-sm text-slate-800">{item.dependsOn.join(', ')}</p>
+            {(() => {
+              const known = new Set(allItems.map(i => (i.issueKey || '').trim()).filter(Boolean));
+              const unresolved = (item.dependsOn || []).map(k => k.trim()).filter(k => k && !known.has(k));
+              if (unresolved.length === 0) return null;
+              return (
+                <p className="mt-2 text-xs text-amber-700">
+                  Unresolved: {unresolved.join(', ')}
+                </p>
+              );
+            })()}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-4">
           <div>
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Issue Key</p>
@@ -67,7 +86,7 @@ export function DetailPanel({ item, completionWeek, qaReleaseWeeks, onClose }: P
           <div>
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Type</p>
             <span className={`mt-1 inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${
-              item.type === 'Standard' ? 'bg-blue-50 text-blue-700' : item.type === 'Integration' ? 'bg-amber-50 text-amber-700' : 'bg-violet-50 text-violet-700'
+              item.type === 'Standard' ? 'bg-blue-50 text-blue-700' : item.type === 'Integration' ? 'bg-amber-50 text-amber-700' : (item.type === 'Ongoing' || item.type === 'Slow Burners') ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-700'
             }`}>
               {item.type}
             </span>
@@ -146,6 +165,30 @@ export function DetailPanel({ item, completionWeek, qaReleaseWeeks, onClose }: P
           ) : (
             <p className="text-sm text-slate-400 italic">No description provided.</p>
           )}
+          {(() => {
+            const myKey = (item.issueKey || '').trim();
+            if (!myKey) return null;
+            const dependents = allItems.filter(
+              other => other.id !== item.id && (other.dependsOn || []).some(k => k.trim() === myKey)
+            );
+            if (dependents.length === 0) return null;
+            return (
+              <div className="mt-4 pt-4 border-t border-slate-200">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5">
+                  The following items depend on this work:
+                </p>
+                <ul className="text-sm text-slate-700 space-y-1">
+                  {dependents.map(d => (
+                    <li key={d.id}>
+                      {d.issueKey && <span className="font-mono text-slate-500">{d.issueKey}</span>}
+                      {d.issueKey && ' — '}
+                      {d.title}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>

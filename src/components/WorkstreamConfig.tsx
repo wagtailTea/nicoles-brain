@@ -1,45 +1,48 @@
 import { useState } from 'react';
 import type { WorkstreamConfig as WConfig, Workstream } from '../types';
-import type { ItemType } from '../types';
+import type { StreamType } from '../types';
+import { getTimelineOrigin, scheduleWeekFromDate } from '../utils/dates';
 
 interface Props {
   config: WConfig;
   onChange: (config: WConfig) => void;
 }
 
+function defaultFocusName(index: number): string {
+  if (index === 0) return 'Team: Silk Road';
+  if (index === 1) return 'Team: TBC';
+  return `Focus Area ${index + 1}`;
+}
+
+function defaultWipMigrationName(index: number): string {
+  if (index === 0) return 'Clean Up';
+  return `WIP Migration ${index + 1}`;
+}
+
 function buildStreams(
-  standardCount: number,
-  integrationCount: number,
-  devDesignPairCount: number,
+  focusAreaCount: number,
+  wipMigrationCount: number,
   existing: Workstream[]
 ): Workstream[] {
+  const origin = getTimelineOrigin();
+  const teamTbcStartWeek = scheduleWeekFromDate(new Date(2026, 2, 16), origin);
   const streams: Workstream[] = [];
-  for (let i = 0; i < standardCount; i++) {
-    const prev = existing.find(s => s.id === `std-${i}`);
+  for (let i = 0; i < focusAreaCount; i++) {
+    const prev = existing.find(s => s.id === `focus-${i}`);
     streams.push(prev ?? {
-      id: `std-${i}`,
-      name: `Standard ${i + 1}`,
-      type: 'Standard' as ItemType,
-      startWeek: null,
+      id: `focus-${i}`,
+      name: defaultFocusName(i),
+      type: 'Focus Area' as StreamType,
+      startWeek: i === 1 ? Math.max(0, teamTbcStartWeek) : null,
       endWeek: null,
     });
   }
-  for (let i = 0; i < integrationCount; i++) {
-    const prev = existing.find(s => s.id === `int-${i}`);
+  for (let i = 0; i < wipMigrationCount; i++) {
+    const prev = existing.find(s => s.id === `wip-mig-${i}`);
     streams.push(prev ?? {
-      id: `int-${i}`,
-      name: `Integration ${i + 1}`,
-      type: 'Integration' as ItemType,
-      startWeek: null,
-      endWeek: null,
-    });
-  }
-  for (let i = 0; i < devDesignPairCount; i++) {
-    const prev = existing.find(s => s.id === `pair-${i}`);
-    streams.push(prev ?? {
-      id: `pair-${i}`,
-      name: `Dev-design pair ${i + 1}`,
-      type: 'Dev-design pair' as ItemType,
+      id: `wip-mig-${i}`,
+      name: defaultWipMigrationName(i),
+      type: 'WIP Migration' as StreamType,
       startWeek: null,
       endWeek: null,
     });
@@ -50,19 +53,23 @@ function buildStreams(
 export function WorkstreamConfigPanel({ config, onChange }: Props) {
   const [expanded, setExpanded] = useState(false);
 
-  const setCount = (type: 'standard' | 'integration' | 'devDesignPair', val: number) => {
+  const setCount = (type: 'focusArea' | 'wipMigration', val: number) => {
     const v = Math.max(0, Math.min(10, val));
     const next = {
       ...config,
-      standardCount: type === 'standard' ? v : config.standardCount,
-      integrationCount: type === 'integration' ? v : config.integrationCount,
-      devDesignPairCount: type === 'devDesignPair' ? v : config.devDesignPairCount,
+      focusAreaCount: type === 'focusArea' ? v : config.focusAreaCount,
+      wipMigrationCount: type === 'wipMigration' ? v : config.wipMigrationCount,
     };
-    next.streams = buildStreams(next.standardCount, next.integrationCount, next.devDesignPairCount, config.streams);
+    next.streams = buildStreams(next.focusAreaCount, next.wipMigrationCount, config.streams);
     onChange(next);
   };
 
-  const updateStream = (id: string, field: 'startWeek' | 'endWeek', value: string) => {
+  const updateStream = (id: string, field: 'startWeek' | 'endWeek' | 'name', value: string) => {
+    if (field === 'name') {
+      const streams = config.streams.map(s => s.id === id ? { ...s, name: value } : s);
+      onChange({ ...config, streams });
+      return;
+    }
     const num = value === '' ? null : parseInt(value, 10);
     const streams = config.streams.map(s =>
       s.id === id ? { ...s, [field]: isNaN(num as number) ? null : num } : s
@@ -86,8 +93,7 @@ export function WorkstreamConfigPanel({ config, onChange }: Props) {
           <div>
             <p className="text-sm font-semibold text-slate-800">What if we added more devs?</p>
             <p className="text-xs text-slate-500">
-              {config.standardCount} Standard · {config.integrationCount} Integration
-              {config.devDesignPairCount > 0 && ` · ${config.devDesignPairCount} Dev-design pair`}
+              {config.focusAreaCount} Focus Area · {config.wipMigrationCount} WIP Migration
               {' '}
               · {config.qaReleaseWeeks}w QA & Release
             </p>
@@ -105,29 +111,20 @@ export function WorkstreamConfigPanel({ config, onChange }: Props) {
         <div className="px-5 pb-5 space-y-4 border-t border-slate-100 pt-4">
           <div className="flex flex-wrap gap-6">
             <label className="flex items-center gap-2 text-sm text-slate-700">
-              Standard streams
+              Focus Area streams
               <input
                 type="number" min={0} max={10}
-                value={config.standardCount}
-                onChange={e => setCount('standard', parseInt(e.target.value))}
+                value={config.focusAreaCount}
+                onChange={e => setCount('focusArea', parseInt(e.target.value))}
                 className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
               />
             </label>
             <label className="flex items-center gap-2 text-sm text-slate-700">
-              Integration streams
+              WIP Migration streams
               <input
                 type="number" min={0} max={10}
-                value={config.integrationCount}
-                onChange={e => setCount('integration', parseInt(e.target.value))}
-                className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              Dev-design pair streams
-              <input
-                type="number" min={0} max={10}
-                value={config.devDesignPairCount}
-                onChange={e => setCount('devDesignPair', parseInt(e.target.value))}
+                value={config.wipMigrationCount}
+                onChange={e => setCount('wipMigration', parseInt(e.target.value))}
                 className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
               />
             </label>
@@ -145,15 +142,20 @@ export function WorkstreamConfigPanel({ config, onChange }: Props) {
           <div className="space-y-2">
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Availability Windows (week numbers, leave blank for always available)</p>
             {config.streams.map(stream => (
-              <div key={stream.id} className="flex items-center gap-3 text-sm">
+              <div key={stream.id} className="flex items-center gap-3 text-sm flex-wrap">
+                <input
+                  type="text"
+                  value={stream.name}
+                  onChange={e => updateStream(stream.id, 'name', e.target.value)}
+                  className="w-36 rounded-lg border border-slate-300 px-2 py-1 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+                  placeholder="Stream name"
+                />
                 <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${
-                  stream.type === 'Standard'
-                    ? 'bg-blue-50 text-blue-700'
-                    : stream.type === 'Integration'
-                    ? 'bg-amber-50 text-amber-700'
-                    : 'bg-violet-50 text-violet-700'
+                  stream.type === 'Focus Area'
+                    ? 'bg-indigo-50 text-indigo-700'
+                    : 'bg-teal-50 text-teal-700'
                 }`}>
-                  {stream.name}
+                  {stream.type}
                 </span>
                 <label className="flex items-center gap-1 text-slate-600">
                   Start

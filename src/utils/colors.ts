@@ -1,7 +1,7 @@
 // A cohesive, muted palette (UI-friendly) + simple adjacency avoidance
 // so neighbours are distinct without looking neon/rainbow.
 
-import type { ItemType, RoadmapItem, ScheduleResult, Workstream } from '../types';
+import type { RoadmapItem, ScheduleResult, StreamType, Workstream } from '../types';
 
 type RGB = { r: number; g: number; b: number };
 
@@ -127,13 +127,15 @@ export function assignColors(items: { id: string; title: string }[]): Record<str
 
 // --- Stream-based colors: one base hue per stream type, alternating light/dark within stream ---
 
-const STREAM_BASE_HUE: Record<ItemType, number> = {
-  'Standard': 210,       // blue (aligns with UI)
-  'Integration': 22,     // muted rust
-  'Dev-design pair': 270, // violet
+// Stream types: Focus Area (Standard/Integration pool), WIP Migration (group WIP-migration)
+const STREAM_BASE_HUE: Record<StreamType, number> = {
+  'Focus Area': 230,    // indigo
+  'WIP Migration': 165, // teal
 };
+const SLOW_BURNERS_HUE = 270; // violet (Business as Usual / Ongoing – list only)
 
-const SCENARIO_BASE_HUE = 165;
+// Scenarios use a different hue from WIP Migration (teal) so they’re visually distinct
+const SCENARIO_BASE_HUE = 45;  // amber/gold (WIP Migration stays teal 165)
 const SCENARIO_SAT = 48;
 
 const CUSTOM_BASE_HUE = 320;
@@ -179,7 +181,7 @@ export function assignColorsByStream(
 
   for (const stream of streams) {
     const hue = STREAM_BASE_HUE[stream.type];
-    const sat = stream.type === 'Integration' ? 42 : 52;
+    const sat = stream.type === 'WIP Migration' ? 48 : 52;
     const { light, dark } = streamShades(hue, sat);
 
     // Item IDs on this stream, ordered by first week (left-to-right on timeline)
@@ -199,7 +201,7 @@ export function assignColorsByStream(
     ordered.forEach((itemId, i) => {
       const item = itemById[itemId];
       const isCustom = item && item.labels && item.labels.includes('custom');
-      const isScenario = item && item.group !== 'WIP' && item.group !== 'Now';
+      const isScenario = item && item.group !== 'WIP' && item.group !== 'Now' && item.group !== 'WIP-migration';
       if (isCustom) {
         map[itemId] = (customIndex % 2 === 0) ? customShades.light : customShades.dark;
         customIndex++;
@@ -216,14 +218,17 @@ export function assignColorsByStream(
   for (const item of items) {
     if (map[item.id]) continue;
     const isCustom = item.labels && item.labels.includes('custom');
-    const isScenario = item.group !== 'WIP' && item.group !== 'Now';
+    const isScenario = item.group !== 'WIP' && item.group !== 'Now' && item.group !== 'WIP-migration';
     if (isCustom) {
       map[item.id] = hslToHex(CUSTOM_BASE_HUE, CUSTOM_SAT, 58);
     } else if (isScenario) {
       map[item.id] = hslToHex(SCENARIO_BASE_HUE, SCENARIO_SAT, 58);
+    } else if (item.group === 'WIP-migration') {
+      map[item.id] = hslToHex(STREAM_BASE_HUE['WIP Migration'], 48, 58);
+    } else if (item.type === 'Standard' || item.type === 'Integration') {
+      map[item.id] = hslToHex(STREAM_BASE_HUE['Focus Area'], 50, 58);
     } else {
-      const hue = STREAM_BASE_HUE[item.type];
-      map[item.id] = hslToHex(hue, 50, 58);
+      map[item.id] = hslToHex(SLOW_BURNERS_HUE, 50, 58);
     }
   }
 
